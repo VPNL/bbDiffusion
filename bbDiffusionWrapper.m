@@ -1,4 +1,4 @@
-
+3
 %Diffusion tool combine Vistasoft, MRtrix, LiFE and AFQ to produce functional defined fasciculus.
 %It requires these toolboxs installed, and also required the fROI defined by vistasoft.
 %In oder for this code to run, you will likely need to upgrade several
@@ -13,24 +13,19 @@
 
 %% Set paths and parameters
 baseDir = '/oak/stanford/groups/kalanit/biac2/kgs/projects/bbDWI_development/';
-dataDir=fullfile(baseDir,'data');
+fatDir=fullfile(baseDir,'data');
 codeDir=fullfile(baseDir,'code','bbDiffusion');
-
-sessid={'bb02/mri6/dwi'};
-
+sessid={'bb02_modular_pipeline/mri6/dwi'};
 runName={'run1'};
-t1_name='T2_biascorr_acpc.nii.gz';
-
+t1_name='t2_biascorr_acpc.nii.gz';
 useBabyAFQ =1;
 useAdultAFQ=0;
-
 revPhase=1; %the baby project is using reverse phase encoding correction
 doDenoise=1; % denoise the data? Enter 0 or 1
 doGibbs=0; % do gibss ringing correction? Enter 0 or 1
 doEddy=1; % do eddy correction? Enter 0 or 1
 doBiasCorr=1; % do bias correction? Enter 0 or 1
 doRicn=0; % ricn denoise is not yet implemented for revPhase data
-
 lmax='auto'; %todate MRtrix automatically choose appropricate lmax when using dhollander
 mrtrixversion=3; %going back to an older version will require serious changes to the pipeline
 multishell=1; % the baby project has 3 shells
@@ -41,7 +36,6 @@ verbose=1; % print output to window
 clobber=1; %overwrite existing files
 seeding='seed_gmwmi'; % seeding mechanisms, this uses ACT
 nSeeds=2000000; % how many seeds
-
 ET=0; % do you want to use ensemble tractography? Enter 1 or 0
 runLife=0; % do you want to run life?
 classifyConnectome = 1; % do you want to classify the connectome with AFQ? Enter 1 or 0
@@ -63,23 +57,32 @@ for s=1:length(sessid)
         %1) Prepare fat data and directory structure
 
         %    The following parameters need to be adjusted to fit your system
-        babyFatPrepareMRtrix3(dataDir,sessid{s}, anatid, runName{r})
+        babyFatPrepareMRtrix3(fatDir,sessid{s}, anatid, runName{r})
 
         %         %2) Preprocess the data using mrTrix3
         %--> After this step check that dwi_processed.nii.gz looks ok
-        cd(fullfile(dataDir,sessid{s},runName{r}))
+        cd(fullfile(fatDir,sessid{s},runName{r}))
 
-        cmd_str=['cp -r ' fullfile(codeDir,'topup_params') ' ' fullfile(dataDir,sessid{s},runName{r})];
-        system(cmd_str)
-        cmd_str=['mv ' fullfile(dataDir,sessid{s},runName{r},'topup_params/','*') ' ' fullfile(dataDir,sessid{s},runName{r})];
-        system(cmd_str)
-        rmdir(fullfile(dataDir,sessid{s},runName{r},'topup_params/'))
+        cmd_str=['cp -r ' fullfile(codeDir,'topup_params') ' ' fullfile(fatDir,sessid{s},runName{r})];
+        system(cmd_str);
+        cmd_str=['mv ' fullfile(fatDir,sessid{s},runName{r},'topup_params/','*') ' ' fullfile(fatDir,sessid{s},runName{r})];
+        system(cmd_str);
+        rmdir(fullfile(fatDir,sessid{s},runName{r},'topup_params/'))
+        cmd_str=['mv ' fullfile(fatDir,sessid{s},runName{r},'dwiMultiShell.bvec') ' ' fullfile(fatDir,sessid{s},runName{r},'raw')];
+        system(cmd_str);
 
-        fatPreProcMRtrix3Nii(dataDir,sessid{s},runName{r},revPhase,doDenoise,doGibbs,doEddy,doBiasCorr,doRicn)
+        if revPhase == 1 
+            fatPreProcMRtrix3NiiWithAdvancedMotion_multishell(fatDir,sessid{s},runName{r})
+        else 
+            fatPreProcMRtrix3NiiWithAdvancedMotion_singleshell(fatDir,sessid{s},runName{r})
+        end 
 
         %3) We need to make a few changes to the nifti for it to work with
         %the rest of the pipeline
-        !mrconvert dwi_processed.nii.gz -fslgrad dwi_processed.bvec dwi_processed.bval dwi_processed.nii.gz -stride -1,2,3,4 -export_grad_fsl dwi_processed.bvec dwi_processed.bval -force
+        cmd = ['mrconvert dwi_processed.nii.gz'...
+            ' -fslgrad dwi_processed.bvec dwi_processed.bval dwi_processed.nii.gz'...
+            ' -stride -1,2,3,4 -export_grad_fsl dwi_processed.bvec dwi_processed.bval -force'];
+        [status,results] = AFQ_mrtrix_cmd(cmd, false, true,3);
 
         nii=niftiRead(fullfile(fatDir,sessid{s},runName{r},'dwi_processed.nii.gz'));
         nii.phase_dim=2;
@@ -87,10 +90,6 @@ for s=1:length(sessid)
 
         %4) Initiate a dt.mat data structure
         %--> After this step, check that t1 and dwi were aligned properly
-        cmd_str = ['N4BiasFieldCorrection -i ',...
-            fullfile(fatDir,sessid{s},runName{r},'t1','t2.nii.gz') ' -o ',...
-            fullfile(fatDir,sessid{s},runName{r},'t1','t2_biascorr.nii.gz')]
-        system(cmd_str);
 
         [dt6folder, dt6file]=fatCreateDT6(fatDir,sessid(s),runName(r),t1_name,clobber);
 
@@ -108,9 +107,9 @@ for s=1:length(sessid)
             1,... %compute5tt
             anatFolder);
         %include mt normaize
-
-
         wmCsd=files.wmCsdMSMTDhollanderNorm;
+
+        
         %7) Create connectomes
         %--> After this step check that WholeBrainFG.tck looks ok
         [status, results, out_fg] = babyFatCreateConnectomeMRtrix3ACT(fullfile(fatDir,sessid{s},runName{r},dt6folder.name),...
