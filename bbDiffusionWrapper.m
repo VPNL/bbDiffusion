@@ -1,4 +1,4 @@
-3
+
 %Diffusion tool combine Vistasoft, MRtrix, LiFE and AFQ to produce functional defined fasciculus.
 %It requires these toolboxs installed, and also required the fROI defined by vistasoft.
 %In oder for this code to run, you will likely need to upgrade several
@@ -15,9 +15,11 @@
 baseDir = '/oak/stanford/groups/kalanit/biac2/kgs/projects/bbDWI_development/';
 fatDir=fullfile(baseDir,'data');
 codeDir=fullfile(baseDir,'code','bbDiffusion');
-sessid={'bb02_modular_pipeline/mri6/dwi'};
+sessid={'bb32/mri0/dwi'};
+dataset_yr = {'2021'};
 runName={'run1'};
 t1_name='t2_biascorr_acpc.nii.gz';
+aseg_file_name = 'asegWithVentricles_reslice.nii.gz';
 useBabyAFQ =1;
 useAdultAFQ=0;
 revPhase=1; %the baby project is using reverse phase encoding correction
@@ -63,11 +65,11 @@ for s=1:length(sessid)
         %--> After this step check that dwi_processed.nii.gz looks ok
         cd(fullfile(fatDir,sessid{s},runName{r}))
 
-        cmd_str=['cp -r ' fullfile(codeDir,'topup_params') ' ' fullfile(fatDir,sessid{s},runName{r})];
+        cmd_str=['cp -r ' fullfile(codeDir,['topup_params_',dataset_yr{s}]) ' ' fullfile(fatDir,sessid{s},runName{r})];
         system(cmd_str);
-        cmd_str=['mv ' fullfile(fatDir,sessid{s},runName{r},'topup_params/','*') ' ' fullfile(fatDir,sessid{s},runName{r})];
+        cmd_str=['mv ' fullfile(fatDir,sessid{s},runName{r},['topup_params_',dataset_yr{s}],'*') ' ' fullfile(fatDir,sessid{s},runName{r})];
         system(cmd_str);
-        rmdir(fullfile(fatDir,sessid{s},runName{r},'topup_params/'))
+        rmdir(fullfile(fatDir,sessid{s},runName{r},['topup_params_',dataset_yr{s}]))
         cmd_str=['mv ' fullfile(fatDir,sessid{s},runName{r},'dwiMultiShell.bvec') ' ' fullfile(fatDir,sessid{s},runName{r},'raw')];
         system(cmd_str);
 
@@ -105,7 +107,8 @@ for s=1:length(sessid)
             multishell, ... % true/false
             track_tool,... % 'fsl', 'freesurfer'
             1,... %compute5tt
-            anatFolder);
+            anatFolder, ...
+            aseg_file_name);
         %include mt normaize
         wmCsd=files.wmCsdMSMTDhollanderNorm;
 
@@ -123,7 +126,7 @@ for s=1:length(sessid)
             mrtrixversion, ...
             ET, ...
             cutOff, ...
-            wmCsd)
+            wmCsd);
 
         fgName='WholeBrainFG';
         fgNameBaby='WholeBrainFG';
@@ -140,17 +143,19 @@ for s=1:length(sessid)
             if useBabyAFQ>0
                 %prepare t2 for alignment
                 cmd_str=['mri_convert ' fullfile(fatDir, sessid{s}, runName{r},'t1','t2_biascorr_acpc.nii.gz') ' ',...
-                    fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','mrtrix','t2_biascorr_acpc_resliced2dwi.nii.gz') ' --reslice_like ',...
+                    fullfile(fatDir, sessid{s}, runName{r},'t1','t2_biascorr_acpc_resliced2dwi.nii.gz') ' --reslice_like ',...
                     fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','mrtrix','b0.nii.gz')];
                 system(cmd_str);
 
-                cmd_str=['fslmaths ' fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','mrtrix','t2_biascorr_acpc_resliced2dwi.nii.gz') ' -mas ',...
+                cmd_str=['fslmaths ' fullfile(fatDir, sessid{s}, runName{r},'t1','t2_biascorr_acpc_resliced2dwi.nii.gz') ' -mas ',...
                     fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','mrtrix','brainMask.nii.gz') ' ',...
-                    fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','mrtrix','t2_biascorr_acpc_resliced2dwi_masked.nii.gz')];
+                    fullfile(fatDir, sessid{s}, runName{r},'t1','t2_biascorr_acpc_resliced2dwi_masked.nii.gz')];
                 system(cmd_str);
 
                 babyAFQRoiDir=fullfile(fatDir, sessid{s}, runName{r},'dti94trilin','babyAFQROIs');
-                out_fg=babyFatSegmentConnectomeMRtrix3(fatDir, babyAFQRoiDir, sessid{s}, runName{r}, strcat(fgNameBaby,'.mat'))
+                t1_full_path = fullfile(fatDir,sessid{s},runName{r},'t1','t2_biascorr_acpc_resliced2dwi_masked.nii.gz');
+                out_fg=babyFatSegmentConnectomeMRtrix3(fatDir, babyAFQRoiDir,...
+                    sessid{s}, runName{r}, strcat(fgNameBaby,'.mat'),1,t1_full_path,aseg_file_name);
             end
 
             if useAdultAFQ>0
@@ -210,8 +215,9 @@ for s=1:length(sessid)
         fgName='WholeBrainFG_classified_clean'
 
         % colors=load('/home/grotheer/babybrains/mri/code/babyAFQ/colors.txt')
-        colorsBaby=load('/share/kalanit/biac2/kgs/projects/babybrains/mri/code/babyAFQ/colorsBaby.txt')
-        colorsAdult=load('/share/kalanit/biac2/kgs/projects/babybrains/mri/code/babyAFQ/colorsAdult.txt')
+        colorsBaby=load('colors_final.csv')
+        colorsAdult=load('colors_final.csv')
+%%
         if useBabyAFQ>0
             colors=colorsBaby;
             if generatePlots >0
@@ -222,7 +228,7 @@ for s=1:length(sessid)
                     'UCI' 'UCI' 'AF' 'AF' 'MdLF' 'MdLF' 'VOF' 'VOF' 'pAF' 'pAF',...
                     'pAF_VOT' 'pAF_VOT' 'pAF_sum' 'pAF_sum'}
 
-                for foi=[1:26]
+                for foi=1:26
                     if rem(foi,2)==0
                         hem='rh'
                         h=2;
@@ -266,14 +272,14 @@ for s=1:length(sessid)
                     if isempty(ROIs)
                         fatRenderFibersWholeConnectome(fatDir, sessid{s}, runName{r}, strcat(fgNameBaby,'.mat'), foi,t1_name, hem, outname,color)
                     else
-                        fatRenderFibersWholeConnectome(fatDir, sessid{s}, runName{r}, strcat(fgNameBaby,'.mat'), foi,t1_name, hem, outname, color, roiDir, ROIs(h,:))
+                        fatRenderFibersWholeConnectome(fatDir, sessid{s}, runName{r}, strcat(fgNameBaby,'.mat'), foi,t1_name, hem, outname, color, roiDir, ROIs(h,:),50)
                     end
                 end
-                close all;
+%                 close all;
             end
         end
 
-
+%%
         if useAdultAFQ>0
             colors=colorsAdult;
             if generatePlots >0
